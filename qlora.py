@@ -53,38 +53,63 @@ SYSTEM_PROMPT = (
 # Dataset field handling
 # ─────────────────────────────────────────────────────────────────────────────
 
-def first_existing_key(row: Dict[str, Any], keys: List[str]) -> Optional[str]:
-    for key in keys:
-        if key in row and row[key] is not None:
-            return key
+def get_problem_and_solution(row):
+    """
+    Extract problem and solution from NuminaMath-CoT row.
+
+    Preferred:
+        row["problem"], row["solution"]
+
+    Fallback:
+        row["messages"] with user/assistant roles.
+    """
+    problem = row.get("problem")
+    solution = row.get("solution")
+
+    if problem is not None and solution is not None:
+        problem = str(problem).strip()
+        solution = str(solution).strip()
+
+        if problem and solution:
+            return problem, solution
+
+    # Fallback to messages if problem/solution missing or empty.
+    messages = row.get("messages")
+    if isinstance(messages, list):
+        user_contents = []
+        assistant_contents = []
+
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+
+            role = msg.get("role")
+            content = msg.get("content")
+
+            if content is None:
+                continue
+
+            content = str(content).strip()
+            if not content:
+                continue
+
+            if role == "user":
+                user_contents.append(content)
+            elif role == "assistant":
+                assistant_contents.append(content)
+
+        if user_contents and assistant_contents:
+            return user_contents[-1], assistant_contents[-1]
+
     return None
 
 
-def get_problem_and_solution(row: Dict[str, Any]) -> Optional[tuple[str, str]]:
-    """
-    Defensive field-name handling for NuminaMath-CoT variants.
-    """
-    problem_key = first_existing_key(row, ["problem", "question", "input", "prompt"])
-    solution_key = first_existing_key(row, ["solution", "answer", "output", "response"])
-
-    if problem_key is None or solution_key is None:
-        return None
-
-    problem = str(row[problem_key]).strip()
-    solution = str(row[solution_key]).strip()
-
-    if not problem or not solution:
-        return None
-
-    return problem, solution
-
-
-def make_training_text(tokenizer: AutoTokenizer, problem: str, solution: str) -> str:
+def make_training_text(tokenizer, problem, solution):
     """
     Format as a chat transcript using the model's chat template.
 
-    Important: this does NOT rewrite the final answer format.
-    The assistant target is the raw dataset solution.
+    No final-answer rewriting is done here. The assistant target is the raw
+    dataset solution.
     """
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
