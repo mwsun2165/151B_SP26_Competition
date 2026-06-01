@@ -1,18 +1,6 @@
 #!/usr/bin/env python3
 """
 QLoRA SFT for Qwen3-4B-Thinking-2507 on AI-MO/NuminaMath-CoT.
-
-Install:
-pip install -U torch transformers datasets peft trl bitsandbytes accelerate huggingface_hub
-
-Local run:
-python train_qlora_numina.py
-
-Upload adapter to HF:
-python train_qlora_numina.py \
-  --push_to_hub \
-  --hub_model_id your-username/qwen3-4b-thinking-numina-qlora-5k \
-  --hf_token YOUR_TOKEN
 """
 
 import argparse
@@ -41,7 +29,6 @@ DATASET_ID = "AI-MO/NuminaMath-CoT"
 NUM_TRAIN_EXAMPLES = 5000
 OUTPUT_DIR = "./qwen3-4b-thinking-numina-qlora-5k"
 
-MAX_SEQ_LENGTH = 4096
 SEED = 42
 
 SYSTEM_PROMPT = (
@@ -128,39 +115,20 @@ def make_training_text(tokenizer, problem, solution):
 # Main training
 # ─────────────────────────────────────────────────────────────────────────────
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--push_to_hub", action="store_true")
-    parser.add_argument("--hub_model_id", type=str, default=None)
-    parser.add_argument("--hf_token", type=str, default=None)
-    return parser.parse_args()
-
-
 def main():
-    args = parse_args()
+    print("Loading model")
 
-    if args.push_to_hub:
-        if args.hf_token:
-            login(token=args.hf_token)
-        elif os.environ.get("HF_TOKEN"):
-            login(token=os.environ["HF_TOKEN"])
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-        if not args.hub_model_id:
-            raise ValueError("--hub_model_id is required when --push_to_hub is set.")
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_id,
-        trust_remote_code=True,
-        use_fast=True,
-    )
+    print("Loaded model")
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     tokenizer.padding_side = "right"
 
-    print(f"Loading dataset: {args.dataset_id}")
-    raw = load_dataset(args.dataset_id)
+    print(f"Loading dataset: {DATASET_ID}")
+    raw = load_dataset(DATASET_ID)
 
     split_name = "train" if "train" in raw else list(raw.keys())[0]
     raw_train = raw[split_name]
@@ -168,7 +136,7 @@ def main():
     print(f"Using split: {split_name}")
     print(f"Raw rows available: {len(raw_train)}")
 
-    scan_count = min(len(raw_train), args.num_train_examples)
+    scan_count = min(len(raw_train), NUM_TRAIN_EXAMPLES)
     raw_subset = raw_train.select(range(scan_count))
 
     def preprocess(row):
@@ -191,11 +159,11 @@ def main():
     processed = processed.filter(lambda x: x["keep"] and x["text"] is not None)
     processed = processed.remove_columns(["keep"])
 
-    train_dataset = processed.select(range(min(len(processed), args.num_train_examples)))
+    train_dataset = processed.select(range(min(len(processed), NUM_TRAIN_EXAMPLES)))
 
     print(f"Training examples: {len(train_dataset)}")
     print("Example training text preview:")
-    print(train_dataset[0]["text"][:2000])
+    print(train_dataset[0]["text"][:2])
 
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -204,9 +172,9 @@ def main():
         bnb_4bit_use_double_quant=True,
     )
 
-    print(f"Loading model: {args.model_id}")
+    print(f"Loading model: {MODEL_ID}")
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id,
+        MODEL_ID,
         quantization_config=bnb_config,
         device_map="auto",
         trust_remote_code=True,
@@ -217,9 +185,9 @@ def main():
     model = prepare_model_for_kbit_training(model)
 
     peft_config = LoraConfig(
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        lora_dropout=args.lora_dropout,
+        r=16,
+        lora_alpha=32,
+        lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
         target_modules=[
@@ -234,18 +202,17 @@ def main():
     )
 
     training_args = SFTConfig(
-        output_dir=args.output_dir,
-        max_seq_length=args.max_seq_length,
+        output_dir=OUTPUT_DIR,
         packing=False,
 
-        per_device_train_batch_size=args.per_device_train_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        num_train_epochs=args.num_train_epochs,
-        learning_rate=args.learning_rate,
-        warmup_ratio=args.warmup_ratio,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=8,
+        num_train_epochs=1.0,
+        learning_rate=2e-5,
+        warmup_ratio=0.03,
 
-        logging_steps=args.logging_steps,
-        save_steps=args.save_steps,
+        logging_steps=10,
+        save_steps=250,
         save_total_limit=2,
 
         optim="paged_adamw_8bit",
@@ -255,10 +222,6 @@ def main():
         lr_scheduler_type="cosine",
 
         report_to="none",
-
-        push_to_hub=args.push_to_hub,
-        hub_model_id=args.hub_model_id,
-        hub_private_repo=True if args.push_to_hub else None,
     )
 
     trainer = SFTTrainer(
@@ -266,22 +229,15 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         peft_config=peft_config,
-        processing_class=tokenizer,
-        dataset_text_field="text",
+        processing_class=tokenizer
     )
 
     print("Starting QLoRA training...")
     trainer.train()
 
-    print(f"Saving adapter locally to: {args.output_dir}")
-    trainer.model.save_pretrained(args.output_dir)
-    tokenizer.save_pretrained(args.output_dir)
-
-    if args.push_to_hub:
-        print(f"Pushing adapter to Hub: {args.hub_model_id}")
-        trainer.model.push_to_hub(args.hub_model_id, private=True)
-        tokenizer.push_to_hub(args.hub_model_id, private=True)
-
+    print(f"Saving adapter locally to: {OUTPUT_DIR}")
+    trainer.model.save_pretrained(OUTPUT_DIR)
+    tokenizer.save_pretrained(OUTPUT_DIR)
     print("Done.")
 
 
