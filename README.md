@@ -4,7 +4,9 @@
 
 **Group:** MWS
 
-Run instructions:
+**GPU Type Used:** Ran on Runpod with the `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04` template. Used `H100 SXM` gpu. Inference on full private dataset takes around `3` hours.
+
+**Run instructions:**
 1. Setup virtual environment (optional with uv) and install required libraries:
 ```
 !wget -qO- https://astral.sh/uv/install.sh | sh
