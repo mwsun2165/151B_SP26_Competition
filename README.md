@@ -1,15 +1,22 @@
-# CSE 151B Competition — Starter Code
+# CSE 151B Competition
 
-Open **`starter_code_cse151b_comp.ipynb`** to get started.
+**Name, PID:** Michael Sun, A19164414
 
-The notebook covers environment setup, inference with Qwen3-4B-Thinking (INT8), and scoring against the public dataset.
+**Group:** MWS
 
-## Contents
+Run instructions:
+1. Setup virtual environment (optional with uv) and install required libraries:
+```
+!wget -qO- https://astral.sh/uv/install.sh | sh
 
-| File | Description |
-|---|---|
-| `starter_code_cse151b_comp.ipynb` | Main entry point |
-| `judger.py` | Response scoring logic |
-| `utils.py` | Utilities used by `judger.py` |
-| `data/public.jsonl` | Public dataset with ground-truth answers |
-| `results/` | Output JSONL files written at runtime |
+!uv venv .venv --seed
+
+!uv pip install -r requirements.txt
+
+!uv pip install git+https://github.com/deepseek-ai/DeepGEMM.git --no-build-isolation
+```
+2. Place private dataset .jsonl in `data/private.jsonl`
+3. Call `run_inference` from `main.py`
+4. Submission .csv will be located in cwd, named `submission.csv`
+
+Note: modify `DATA_PATH` and `SUBMISSION_PATH` in `main.py` to change the data file path and the submission file if needed.
