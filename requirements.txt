@@ -12,3 +12,4 @@ peft
 trl
 accelerate
 huggingface_hub
+pandas
